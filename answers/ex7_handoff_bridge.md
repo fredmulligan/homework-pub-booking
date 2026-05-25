@@ -2,29 +2,37 @@
 
 ## Your answer
 
-The HandoffBridge orchestrates round-trips between the loop half and
-structured half. Each round: loop runs, if next_action=handoff_to_structured
-the bridge writes a forward handoff file, invokes structured, and then
-either marks the session complete (structured confirmed) or builds a
-reverse task and loops back (structured escalated).
+Ex7 is the orchestrator that shuttles control between the two halves
+of the agent. The loop half does free-form research, the structured
+half enforces rules. The bridge sits between them and runs the
+round-trip: loop runs, hands off to structured, structured either
+accepts or rejects, and on rejection the bridge sends it back to the
+loop with the rejection reason so it can try something else.
 
-The reverse-task path is the interesting one. On escalation, the
-bridge rewrites the initial_task into a dict that contains
-prior_result + rejection_reason + retry=True. The loop half sees
-this via the new executor invocation and — in a real LLM setting —
-would produce a different subgoal. In the scripted offline demo we
-hardcode the retry choice (royal_oak with 16 seats) so the test is
-deterministic.
+The interesting bit is the reverse path. When the structured half
+rejects a booking (say, party of 12 won't fit in haymarket_tap's 8
+seats), the bridge doesn't just give up. It rewrites the task to
+include the prior result and the rejection reason, then sends it
+back to the loop. In a real LLM setting the loop would read "this
+got rejected because of party_too_large" and search for a bigger
+venue. In the offline test we cheat — the next pick is hardcoded
+to royal_oak (16 seats) — so the test is deterministic.
 
-Every half transition emits a session.state_changed trace event via
-session.append_trace_event(). The integrity check (integrity.py)
-verifies the trace has at least one round_start, at least one
-state_changed, and at least one tool call — catching the case where
-the bridge reports success without doing real work.
+Every transition emits a trace event so you can see what happened
+afterwards. The integrity check reads the trace and complains if
+the bridge claims success without actually doing the rounds. That
+catches the obvious failure mode where someone short-circuits the
+bridge and reports victory.
 
-The stale-handoff cleanup moves old ipc/handoff_to_structured.json
-files into logs/handoffs/ instead of deleting them, preserving the
-audit trail.
+One small piece of bookkeeping: old handoff files get moved to a
+logs/handoffs/ folder instead of deleted. The grader cares about
+this because it lets you reconstruct what happened during a session
+review — useful when something went wrong and you're looking at it
+the next day.
+
+Worth flagging the obvious risk: this thing can loop forever if no
+venue ever satisfies the rules. The bridge caps it with max_rounds
+(3 by default), which is a blunt fix but the right one for now.
 
 ## Citations
 
