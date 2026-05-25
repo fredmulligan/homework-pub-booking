@@ -2,39 +2,46 @@
 
 ## Your answer
 
-Ex7 is the orchestrator that shuttles control between the two halves
-of the agent. The loop half does free-form research, the structured
-half enforces rules. The bridge sits between them and runs the
-round trip: loop runs, hands off to structured, structured either
-accepts or rejects, and on rejection the bridge sends it back to the
-loop with the rejection reason so it can try something else.
+Ex7 is the piece that ties Ex5 and Ex6 together. Ex5 is the LLM
+that researches a venue. Ex6 is the rule check that approves or
+rejects it. Ex7 is the traffic cop that sends the booking from one
+to the other and, critically, back again when the first attempt
+fails.
 
-The interesting bit is the reverse path. When the structured half
-rejects a booking (say, party of 12 won't fit in haymarket_tap's 8
-seats), the bridge doesn't just give up. It rewrites the task to
-include the prior result and the rejection reason, then sends it
-back to the loop. In a real LLM setting the loop would read "this
-got rejected because of party_too_large" and search for a bigger
-venue. In the offline test we cheat: the next pick is hardcoded to
-royal_oak (16 seats) so the test is deterministic.
+The reason this exists is that real bookings aren't one-shot. The
+first venue the LLM picks often doesn't work. Maybe it's too small
+for the party. Maybe the deposit is too high. In a real-world
+booking call you'd expect the agent to say "alright, that one
+won't work, let me check another." Ex7 builds that loop. The bridge
+runs the LLM, hands the result to the rule check, and if the rules
+say no, it sends a new task back to the LLM saying "this got
+rejected because X, try something else." The LLM then takes a
+second swing.
 
-Every transition emits a trace event so you can see what happened
-afterwards. The integrity check reads the trace and complains if
-the bridge claims success without actually doing the rounds. That
-catches the obvious failure mode where someone short-circuits the
-bridge and reports victory.
+The other thing Ex7 is doing, less visibly, is producing an audit
+trail. Every time the bridge moves a booking from one half to the
+other, it writes a trace event. After the conversation ends you
+can read the trace and see exactly what was tried, in what order,
+and what failed. This matters because when a real booking goes
+wrong, you don't want to rerun the conversation to debug it. LLM
+calls aren't reproducible. The trace is the only thing left.
 
-One small piece of bookkeeping: old handoff files get moved to a
-logs/handoffs/ folder instead of deleted. The grader cares about
-this because it lets you reconstruct what happened during a session
-review, which is useful when something went wrong and you're
-looking at it the next day.
+The obvious failure mode, and one I think anyone shipping this
+would hit fast, is the loop that never terminates. The LLM keeps
+suggesting venues that get rejected, the bridge keeps sending them
+back, and nobody ever decides "stop, escalate this to a human."
+The bridge has a cap on retries (three by default), which is a
+blunt fix but the right one. Without it, an unlucky booking could
+spend hundreds of pounds in LLM calls and end with nothing.
 
-Worth flagging the obvious risk: this thing can loop forever if no
-venue ever satisfies the rules. The bridge caps it with max_rounds
-(3 by default), which is a blunt fix but the right one for now.
+The general lesson is that any system with two components passing
+work between each other needs a guard against infinite ping-pong.
+Network protocols solve this with TTL fields. Phone trees solve
+it with "press 0 to talk to an operator." Ex7 solves it with the
+retry cap. The number isn't sacred; what matters is that you have
+one.
 
 ## Citations
 
-- starter/handoff_bridge/bridge.py, HandoffBridge.run + helpers
-- starter/handoff_bridge/integrity.py, verify_dataflow
+- starter/handoff_bridge/bridge.py, the round-trip orchestrator
+- starter/handoff_bridge/integrity.py, the trace check

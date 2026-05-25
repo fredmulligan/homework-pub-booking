@@ -2,39 +2,45 @@
 
 ## Your answer
 
-Ex8 is the bit that lets you actually talk to the agent. You play
-the customer, Alasdair MacLeod the pub manager plays himself, a
-gruff Scottish landlord whose job is to decide whether to accept
-your booking. He's not a script, he's an LLM (Llama-3.3-70B) running
-a fairly opinionated system prompt that gives him the persona and
-the rules he has to enforce.
+Ex8 is the bit where you actually talk to the agent. You play the
+customer trying to book a table. The pub manager on the other end
+is Alasdair MacLeod, a gruff Scottish landlord with the patience
+of a Glasgow taxi driver. He's not a script. He's a Llama model
+running a system prompt that gives him a persona and a set of
+booking rules to enforce.
 
-There are two modes for talking to him, and they're deliberately
-designed so the same code path runs underneath. In text mode you
-type and read. In voice mode your microphone audio goes through
-Speechmatics for transcription, the manager responds, and Rime.ai
-turns his reply back into audio you hear through your speakers.
-Either way it's the same persona, the same conversation history,
-the same trace events. The transport differs; the brains don't.
+There are two ways to talk to him. In text mode you type your
+request and read his reply. In voice mode your microphone goes
+through Speechmatics to convert your speech to text, the LLM
+generates a reply, and Rime turns the reply into audio that plays
+back through your speakers. Either way the LLM in the middle is
+the same. The transport changes, the brain doesn't.
 
-The choice that matters most here is graceful degradation. If the
-Speechmatics or Rime keys aren't in your environment, the code
-doesn't error. It just falls back to text mode with a warning.
-That's what lets the grader pass "voice loop implemented" without
-needing every student to sign up for two paid APIs. The shape of
-the implementation is what gets graded, not whether your mic
-worked at submission time.
+What makes this worth doing as a homework, I think, is the
+graceful-fallback design. The voice mode checks at startup whether
+the audio APIs are reachable. If your Speechmatics or Rime keys
+aren't set, or your microphone isn't accessible, the code doesn't
+crash. It falls back to text mode with a warning. That's the right
+default for a system that has to work on a hundred students'
+machines with a hundred different microphone configurations.
 
-What I find interesting is that the rules (party of 8 or fewer,
-deposit under £300) live entirely in the system prompt. There's
-no Python check inside Ex8 saying "if party > 8, reject". The LLM
-just refuses in character. That's fine for a demo but it's exactly
-why we need Ex6 in the real architecture: a system prompt rule is
-soft, an Ex6 validator is hard. In production you'd want both.
-Alasdair refuses gracefully on his side, the structured half is
-the actual gate.
+The thing that struck me building this is how thin the layer between
+"voice agent" and "text agent" actually is. The interesting work
+sits in the LLM and the system prompt. The voice piece is just an
+audio router. Companies that pitch "voice AI" as the differentiator
+are mostly selling the wrapper; the intelligence is the model.
+
+The other observation is about where the rules live. In Ex6 the
+rules are enforced in Python code. In Ex8 the rules are baked into
+Alasdair's system prompt. The two implementations of the same
+constraint behave differently under pressure. The Python check is
+deterministic: party of 9, rejected, every time. Alasdair will
+also reject, but if you push him with a sob story he might
+hesitate, soften, or invent an exception. That's exactly why a
+real system needs both. Alasdair handles the conversation; the
+structured half handles the gate.
 
 ## Citations
 
-- starter/voice_pipeline/voice_loop.py, run_text_mode + run_voice_mode
+- starter/voice_pipeline/voice_loop.py, the text and voice modes
 - starter/voice_pipeline/manager_persona.py, Alasdair's system prompt

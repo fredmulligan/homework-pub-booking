@@ -2,40 +2,45 @@
 
 ## Your answer
 
-Ex5 is the open-ended research half of the agent. The setup: someone
-wants to book an Edinburgh pub for 6 people on a Saturday near
-Haymarket. The agent has to figure out which pub, what the weather
-will be, how much it'll cost, and produce a flyer for the event.
+The setup is straightforward. Someone wants to book a pub in
+Edinburgh, near Haymarket station, for six people on a Saturday.
+The agent does the research: picks a venue that fits, looks up the
+weather for the night, works out the total cost, and produces a
+flyer for the event.
 
-The point of this exercise isn't really the booking. It's the
-discipline around how an LLM should call tools. The agent has four
-of them: search venues, look up weather, calculate cost, generate
-the flyer. Three of those are pure reads from local JSON. One writes
-a file. The framework flags the reads as parallel-safe and the write
-as not, so the executor batches the reads into a single turn and
-runs the flyer write on its own afterwards. It's a small detail but
-it saves you from the kind of race condition where two tools both
-think they're writing the canonical flyer at the same time.
+What I think this exercise is actually about isn't "write four
+small Python tools." It's about deciding what the LLM is allowed
+to invent. The four tools are dumb on purpose. They just read JSON
+files and return numbers. The LLM doesn't get to guess the cost,
+or improvise the weather, or pick a price out of the air. If a
+number ends up in the flyer, it has to have come from a tool.
 
-The bit I find most useful in this whole exercise is the dataflow
-integrity check. After the flyer is written, a separate function
-reads every concrete fact in it (every price, every temperature,
-every weather condition) and checks that the same value actually
-came back from a real tool call earlier. If the flyer says "£540
-total" but no tool ever returned 540, that's flagged as a
-fabrication. The LLM made it up.
+The smart part of Ex5 is the check that runs after the flyer is
+written. It scans the flyer for every concrete fact (every price,
+every temperature, every weather word) and asks: did any tool
+actually return this value during the run? If the flyer says £560
+but the cost tool returned £540, that's flagged. The LLM made up
+the £560.
 
-This catches a class of failure that human review misses. A flyer
-that says "£560" looks fine, because £560 is a perfectly reasonable
-price. You'd only notice it was wrong if you cross-referenced the
-trace and saw the cost tool actually returned £540. The integrity
-check does that cross-reference automatically and refuses to ship
-a flyer with numbers no tool produced. The lesson generalises: any
-time the LLM has to summarise or restate facts in a user-facing
-output, you want a mechanical audit that ties output values back
-to tool outputs.
+This sounds trivial but it isn't. A human reading the flyer would
+not catch it. £560 looks like a fine, plausible number for a pub
+booking. The only signal that it's wrong is hidden in the trace.
+You'd have to actively cross-reference the logged tool outputs
+against the flyer text to spot the gap. The check does that
+automatically and refuses to ship a flyer with values it can't
+trace.
+
+The pattern is older than LLMs. Banks reconcile transactions the
+same way. Accountants tie line items back to receipts. Compilers
+verify that variable types match their declarations. Any system
+where a creative component produces output needs a verifier that
+checks the output against ground truth. LLMs are unusually
+creative, so they need an unusually thorough verifier. The
+homework's framing of this as "dataflow integrity" is fancy. The
+underlying idea is just: trust nothing without a source.
 
 ## Citations
 
 - sessions/sess_*/logs/trace.jsonl, the tool call sequence
 - sessions/sess_*/workspace/flyer.html, the produced flyer
+- starter/edinburgh_research/integrity.py, the verifier

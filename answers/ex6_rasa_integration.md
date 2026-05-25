@@ -2,36 +2,43 @@
 
 ## Your answer
 
-Ex6 builds the part of the agent that says no to bad bookings.
-Where Ex5 lets the LLM be creative (find me a pub), Ex6 enforces
-hard rules in Python code: max party size 8, max deposit £300.
+Ex6 is the part of the agent that says no. Where Ex5 lets the LLM
+explore and produce, Ex6 enforces the boring rules that have to hold
+no matter what: party of 8 or fewer, deposit of £300 or under.
 
-The flow is simple. The loop half finishes researching and hands
-over messy booking data, things like "£500" as a string, "7:30pm"
-as a time, party size as text. My code cleans that up into something
-Rasa understands (numbers, ISO dates, 24h times), POSTs it to a
-Rasa webhook, waits for a yes or no, and turns the reply back into
-a result the rest of the system can use.
+I think the easiest way to understand why this exists is to imagine
+what happens without it. If the only thing standing between a
+customer request and a confirmed booking is an LLM, sooner or later
+someone says "please, I really need a table for 25, my daughter's
+wedding is tomorrow" and the LLM caves. Not because the LLM is
+broken, but because LLMs are trained to be helpful. Niceness wins
+over rules.
 
-The interesting bit is the mock setup. A real Rasa container needs
-a paid license and roughly 400MB of install, which is too much
-friction for daily testing. Offline mode spins up a tiny Python
-HTTP server that pretends to be Rasa: same response shape, same
-accept/reject logic, no Rasa actually running. Lets you iterate on
-the Python side without standing up the whole dialog stack.
+The fix isn't to write a better prompt. It's to take the rules out
+of the LLM's hands entirely and put them in code that doesn't get
+guilt-tripped. That's what Ex6 is. The structured half receives
+the booking data, runs it through a flow that checks the limits,
+and returns either a confirmation or a rejection with a reason.
+The LLM is not in the loop for that decision.
 
-Three things I had to think about:
+The implementation is two pieces. The Python side cleans up the
+data the LLM produced (£500 as a string, "7:30pm" as a time, party
+size as text) and sends it to Rasa over HTTP. The Rasa side runs
+the flow, applies the rules, and sends back a structured yes-or-no.
+For testing without paying for a Rasa license, we run a tiny mock
+HTTP server that returns the same shape of answer, so the rest of
+the system doesn't know or care whether it's talking to real Rasa.
 
-- The validator throws when input is broken beyond repair. My code
-  catches it and returns a failure result instead of crashing,
-  because whatever calls me expects a result object either way.
-- Network errors get a specific error code so the caller can decide
-  whether to retry. I don't retry on my own.
-- Each booking gets a stable ID that's just a hash of venue, date,
-  and time. If the same booking gets retried, Rasa sees one
-  conversation, not two. Saves you weird state bugs.
+The principle generalises beyond pub bookings. Anywhere you mix an
+LLM with hard rules (payments, medical doses, security clearances,
+legal limits) you want this split. The LLM does the soft part
+(understanding the request, talking to the user), and a dumb piece
+of code does the hard part (refusing to break the rule). If a
+booking goes wrong, you want to know which side of the line it
+failed on, and you want the rule side to be small and readable.
 
 ## Citations
 
-- starter/rasa_half/validator.py, normalise_booking_payload + helpers
-- starter/rasa_half/structured_half.py, RasaStructuredHalf.run + mock server
+- starter/rasa_half/validator.py, the data normaliser
+- starter/rasa_half/structured_half.py, the HTTP bridge and mock server
+- rasa_project/actions/actions.py, the Python that enforces the limits

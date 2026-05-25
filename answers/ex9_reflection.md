@@ -4,38 +4,39 @@
 
 ### Your answer
 
-In my Ex7 run, the planner produced two subgoals. The first was
-about researching venues (assigned to the loop half, where the LLM
-gets to be creative). The second was about actually committing the
-booking under the agreed rules (assigned to the structured half).
-That second assignment is the interesting one. It's the moment the
-planner decides "this is not a creative task, this is a rule-following
-task, send it to the deterministic side."
+The planner is the part of the agent that breaks the user's request
+into smaller steps. In my run it produced two: first, go and find
+a suitable venue, and second, commit the booking under the rules.
+The interesting one is the second. The planner tagged it for the
+structured half, meaning "this one's not a creative search, this
+one needs rule-checking."
 
-The signal that drove the decision was the language of the subgoal
-itself. The planner is just an LLM with a list of the available
-halves and a one-line description of what each does. When a
-subgoal description includes words like "rules", "policy", "limits",
-or "commit", the planner naturally routes it to the structured
-half. When the description is about searching, comparing, or
-producing content, it routes to loop.
+What drove that decision was the language of the subgoal. The
+planner is just an LLM looking at a short description and a list
+of the available halves. When the description mentions rules,
+limits, policy, or anything that sounds like a binary yes-or-no
+check, the planner sends it to the structured side. When the
+description is about exploring, comparing, or producing content,
+it sends it to the loop side.
 
-What's worth flagging is that this routing decision is advisory,
-not enforced. The planner can put the wrong tag on a subgoal and
-the orchestrator will still run it through the half the planner
-named. There's no automatic check that says "wait, that subgoal
-needs Python rules, not an LLM." If the structured half didn't
-exist at all, a subgoal marked "structured" would just be dropped
-on the floor. So in practice you don't want to lean too hard on
-the planner's judgement. The harder rules live in the structured
-half's Python (Ex6), where prose ambiguity can't reach them.
+The thing worth flagging is that this routing is advisory. There's
+no enforcement. If the planner mis-labels a subgoal, the
+orchestrator will still route it to the half the planner named,
+even if that's the wrong place. So the system depends partly on
+the planner reading words correctly. That's a soft check.
+
+The lesson I take from that is to not lean too heavily on the
+planner's judgement for things that really matter. If a booking
+must obey a deposit limit, you don't want that check to live
+behind a sentence in a prompt. You want it living in code that
+the planner can't bypass even if it wanted to. The planner picks
+the lane; the lane decides what happens. Both have to be doing
+their job.
 
 ### Citation
 
-- sessions/sess_*/logs/trace.jsonl, planner output and the
-  subgoal-to-half assignments
-- starter/handoff_bridge/bridge.py, where the assignment is
-  consumed and turned into actual calls
+- sessions/sess_*/logs/trace.jsonl, the planner output
+- starter/handoff_bridge/bridge.py, where the assignment becomes a real call
 
 ---
 
@@ -43,41 +44,38 @@ half's Python (Ex6), where prose ambiguity can't reach them.
 
 ### Your answer
 
-The scenario the dataflow integrity check is designed for is the
-one where the LLM produces a flyer with numbers that look fine
-but didn't actually come from a tool. Imagine the calculate_cost
-tool returns £540, but when the LLM writes the flyer it types
-"£560". Close enough to look right, plausible in context, and
-nobody reading the flyer would think to cross-reference it against
-the calculation.
+The fabrication problem looks like this. The cost tool runs and
+returns £540 for the booking. The LLM writes the flyer and types
+"£560" because some token-level random walk drifted from the real
+number. The flyer says £560. To a human reading it, that's a fine
+number for a pub booking. Nothing about it screams wrong.
 
-verify_dataflow catches this because it ignores plausibility and
-only looks at provenance. It pulls every concrete fact out of the
-flyer (every price, every temperature, every weather condition)
-and asks "did any tool actually return this value during the run?"
-If the answer is no, the flyer fails the integrity check and the
-run is reported as broken.
+The integrity check catches this not because it understands prices
+but because it doesn't trust output. It pulls every number out of
+the flyer and asks "did any tool actually return this value?"
+£540 came from a tool. £560 didn't. The check refuses to pass
+the flyer until every number has a source.
 
-A human reviewer would not catch this in casual review. £560 looks
-like a fine number for a pub booking. The only signal that it's
-wrong is that the trace shows the cost tool returned £540, and you
-have to actively cross-reference to see the gap. The integrity
-check does that cross-reference automatically. The generalisable
-lesson: whenever the LLM is restating numbers it received from a
-tool, you want a mechanical audit that ties the restated value
-back to its source. Vibes-based review of LLM output doesn't scale.
+Why a human reviewer misses this: humans check for plausibility,
+not provenance. We see a number and ask "does that seem right?"
+not "where did this come from?" Most of the time plausibility is
+good enough, which is why it's our default. But LLMs are exactly
+the case where it fails. They produce plausible-looking nonsense
+faster than humans can fact-check, so plausibility is no defence.
+You need a check that doesn't care how reasonable the output
+looks.
 
-A good way to test this in your own run: change one constant in
-the flyer template to a deliberately wrong value (say, multiply
-the total by 1.04), re-run, and confirm verify_dataflow flags it.
-That's the proof your check actually works.
+The principle scales. Finance teams reconcile every transaction
+against an upstream source. Hospitals double-check every dose
+against a chart. The pattern isn't novel; it's old wisdom applied
+to a new producer of mistakes. The verifier doesn't need to be
+clever. It needs to be stubborn.
 
 ### Citation
 
-- sessions/sess_*/workspace/flyer.html, the produced flyer
-- sessions/sess_*/logs/trace.jsonl, the tool call sequence that
-  the integrity check compares against
-- starter/edinburgh_research/integrity.py, the verifier itself
+- sessions/sess_*/workspace/flyer.html, the output being verified
+- sessions/sess_*/logs/trace.jsonl, the tool outputs that count as ground truth
+- starter/edinburgh_research/integrity.py, the check itself
 
 ---
 
@@ -85,36 +83,38 @@ That's the proof your check actually works.
 
 ### Your answer
 
-If you shipped this to a real pub-booking business next week, the
-first failure you'd hit is the bridge loop never terminating. The
-loop half suggests a venue, the structured half rejects (party too
-big, deposit too high, whatever), the bridge sends it back to the
-loop, and the loop suggests the same venue again. Or one that also
-fails. Burning Nebius tokens on every round, no progress, the
-customer waiting on the phone.
+If I shipped this to a real pub-booking business next week, the
+first thing to break would be the loop that never terminates. The
+LLM picks a venue, the rule check rejects it, the bridge sends it
+back to the LLM, which picks a similar venue, which gets rejected
+the same way. The bridge keeps going. The customer waits. The
+Nebius bill grows.
 
-The primitive that surfaces this is the bridge's max_rounds cap.
-It's a blunt instrument (three retries and we give up) but it's
-the difference between "spent £0.30 and gave the customer a clean
-escalation" and "spent £80 trying to autonomously book a wedding
-for forty." In production you'd want the cap, plus a clear
-escalation path: at round N+1, hand off to a human, with the trace
-attached so the human knows what was tried.
+The sovereign-agent primitive that catches this is the retry cap
+on the bridge. Three rounds and it gives up. That cap is the
+difference between a thirty-pence failed booking and a thirty-quid
+one. It's a blunt instrument, but the blunt instrument is the
+point. You don't need cleverness here; you need certainty that the
+loop ends.
 
-The other primitive that helps here is the trace itself. When the
-bridge gives up, the trace has every round_start, every state_changed,
-every venue tried and every rejection reason. That's how you debug
-"why did this customer never get a booking?" without rerunning the
-whole conversation. Production agents need a trace this explicit
-because LLM behaviour isn't reproducible by replay. You can't rerun
-last Tuesday's conversation and expect the same tool calls.
+The second primitive that matters once you have the cap is the
+trace. When the bridge gives up, the trace is the only record of
+what was tried and why each attempt failed. You can't rerun the
+conversation to find out, because LLM calls are not reproducible.
+The model that returned royal_oak last Tuesday is the model that
+might return cafe_royal today. Without the trace you can't debug
+a single thing.
 
-So: failure is infinite-loop / runaway cost. The surfacing primitive
-is the round cap on the bridge. The debugging primitive is the
-session trace. Both are non-negotiable for shipping.
+Together they make the failure boring. The loop terminates, the
+trace explains why. A human picks it up, reads the trace, sees
+that the customer asked for a party of forty in a place that caps
+at sixteen, and rings them back. That's the system working as
+intended. The failure isn't "the agent did something wrong"; the
+failure is "the agent admitted it couldn't help and left a clear
+record." That's a better failure than most production systems
+manage.
 
 ### Citation
 
-- starter/handoff_bridge/bridge.py, the max_rounds cap
-- sessions/sess_*/logs/trace.jsonl, the round_start /
-  state_changed events that make a stuck loop visible
+- starter/handoff_bridge/bridge.py, the round cap
+- sessions/sess_*/logs/trace.jsonl, the round-by-round audit trail
