@@ -3,7 +3,7 @@
 ## Your answer
 
 Ex8 is the bit that lets you actually talk to the agent. You play
-the customer, Alasdair MacLeod the pub manager plays himself — a
+the customer, Alasdair MacLeod the pub manager plays himself, a
 gruff Scottish landlord whose job is to decide whether to accept
 your booking. He's not a script, he's an LLM (Llama-3.3-70B) running
 a fairly opinionated system prompt that gives him the persona and
@@ -19,22 +19,22 @@ the same trace events. The transport differs; the brains don't.
 
 The choice that matters most here is graceful degradation. If the
 Speechmatics or Rime keys aren't in your environment, the code
-doesn't error — it just falls back to text mode with a warning.
+doesn't error. It just falls back to text mode with a warning.
 That's what lets the grader pass "voice loop implemented" without
 needing every student to sign up for two paid APIs. The shape of
 the implementation is what gets graded, not whether your mic
 worked at submission time.
 
-What I find interesting is that the rules — party of 8 or fewer,
-deposit under £300 — live entirely in the system prompt. There's
+What I find interesting is that the rules (party of 8 or fewer,
+deposit under £300) live entirely in the system prompt. There's
 no Python check inside Ex8 saying "if party > 8, reject". The LLM
 just refuses in character. That's fine for a demo but it's exactly
 why we need Ex6 in the real architecture: a system prompt rule is
-soft, an Ex6 validator is hard. In production you'd want both —
+soft, an Ex6 validator is hard. In production you'd want both.
 Alasdair refuses gracefully on his side, the structured half is
 the actual gate.
 
 ## Citations
 
-- starter/voice_pipeline/voice_loop.py — run_text_mode + run_voice_mode
-- starter/voice_pipeline/manager_persona.py — Alasdair's system prompt
+- starter/voice_pipeline/voice_loop.py, run_text_mode + run_voice_mode
+- starter/voice_pipeline/manager_persona.py, Alasdair's system prompt
